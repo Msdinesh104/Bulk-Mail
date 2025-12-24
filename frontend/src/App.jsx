@@ -5,28 +5,23 @@ import * as XLSX from "xlsx";
 function App() {
   const [msg, setMsg] = useState("");
   const [emailList, setEmailList] = useState([]);
+  const [selectedFile, setSelectedFile] = useState(null);
   const [status, setStatus] = useState(false);
   const [error, setError] = useState("");
 
-  // Upload history (last file)
   const [lastFile, setLastFile] = useState(
     JSON.parse(localStorage.getItem("lastFile")) || null
   );
 
-  // Email logs
   const [logs, setLogs] = useState(
     JSON.parse(localStorage.getItem("emailLogs")) || []
   );
 
-  /* ---------------- MESSAGE ---------------- */
-  const handleMessageChange = (e) => {
-    setMsg(e.target.value);
-  };
-
-  /* ---------------- FILE UPLOAD ---------------- */
-  const handleFileChange = (event) => {
-    const file = event.target.files[0];
+  /* ---------------- FILE PROCESS ---------------- */
+  const processFile = (file) => {
     if (!file) return;
+
+    setSelectedFile(file);
 
     const fileDetails = {
       name: file.name,
@@ -38,10 +33,8 @@ function App() {
     localStorage.setItem("lastFile", JSON.stringify(fileDetails));
 
     const reader = new FileReader();
-
     reader.onload = (e) => {
-      const data = e.target.result;
-      const workbook = XLSX.read(data, { type: "binary" });
+      const workbook = XLSX.read(e.target.result, { type: "binary" });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const jsonData = XLSX.utils.sheet_to_json(sheet, { header: "A" });
 
@@ -49,8 +42,7 @@ function App() {
         .map((item) => item.A)
         .filter(
           (email) =>
-            email &&
-            /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+            email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
         );
 
       setEmailList(emails);
@@ -58,6 +50,21 @@ function App() {
     };
 
     reader.readAsBinaryString(file);
+  };
+
+  /* ---------------- FILE INPUT ---------------- */
+  const handleFileChange = (e) => {
+    processFile(e.target.files[0]);
+  };
+
+  /* ---------------- DRAG & DROP ---------------- */
+  const handleDrop = (e) => {
+    e.preventDefault();
+    processFile(e.dataTransfer.files[0]);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
   };
 
   /* ---------------- SEND EMAIL ---------------- */
@@ -91,9 +98,11 @@ function App() {
       setLogs(updatedLogs);
       localStorage.setItem("emailLogs", JSON.stringify(updatedLogs));
 
-      alert("Emails processed successfully ✅");
+      alert("Emails sent successfully ✅");
+
       setMsg("");
       setEmailList([]);
+      setSelectedFile(null);
     } catch (err) {
       setError(err.response?.data?.error || err.message);
 
@@ -113,7 +122,7 @@ function App() {
 
   /* ---------------- UI ---------------- */
   return (
-    <div className="min-h-screen bg-gray-50 px-4 py-8">
+    <div className="min-h-screen bg-gradient-to-br from-gray-100 via-gray-50 to-white px-4 py-8">
 
       {/* HEADER */}
       <div className="max-w-5xl mx-auto text-center mb-8">
@@ -121,7 +130,7 @@ function App() {
           BulkMail Dashboard
         </h1>
         <p className="text-gray-500 mt-1">
-          Minimal • Excel-based • Bulk email sender
+          Drag & Drop • Excel-based • Bulk email sender
         </p>
       </div>
 
@@ -134,25 +143,53 @@ function App() {
         </label>
         <textarea
           value={msg}
-          onChange={handleMessageChange}
+          onChange={(e) => setMsg(e.target.value)}
           rows={5}
           placeholder="Write your email content here..."
           className="w-full border rounded-lg px-3 py-2 focus:ring-2
                      focus:ring-teal-500 outline-none"
         />
 
-        {/* FILE UPLOAD */}
+        {/* DRAG & DROP */}
         <div className="mt-6">
           <label className="block text-sm font-medium text-gray-600 mb-2">
             Upload Excel File
           </label>
 
-          <input
-            type="file"
-            accept=".xlsx,.csv"
-            onChange={handleFileChange}
-            className="block w-full text-sm text-gray-500"
-          />
+          <div
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            className="flex flex-col items-center justify-center h-36
+                       border-2 border-dashed rounded-xl
+                       border-gray-300 hover:border-teal-400
+                       cursor-pointer transition"
+            onClick={() => document.getElementById("fileInput").click()}
+          >
+            <input
+              type="file"
+              id="fileInput"
+              accept=".xlsx,.csv"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+
+            <span className="text-3xl">📂</span>
+
+            {selectedFile ? (
+              <>
+                <p className="mt-2 font-medium text-gray-700">
+                  {selectedFile.name}
+                </p>
+                <p className="text-xs text-gray-400">
+                  {(selectedFile.size / 1024).toFixed(2)} KB
+                </p>
+              </>
+            ) : (
+              <p className="mt-2 text-gray-500">
+                Drag & drop or click to upload
+              </p>
+            )}
+          </div>
         </div>
 
         {/* LAST UPLOAD */}
@@ -223,7 +260,6 @@ function App() {
         )}
       </div>
 
-      {/* FOOTER */}
       <p className="text-center text-xs text-gray-400 mt-6">
         ⚠ Some emails may go to spam. Ask users to check inbox.
       </p>
