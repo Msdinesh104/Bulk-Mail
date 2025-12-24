@@ -1,150 +1,234 @@
-import { useState } from "react"
-import axios from "axios"
-import * as XLSX from "xlsx"
+import { useState } from "react";
+import axios from "axios";
+import * as XLSX from "xlsx";
 
 function App() {
+  const [msg, setMsg] = useState("");
+  const [emailList, setEmailList] = useState([]);
+  const [status, setStatus] = useState(false);
+  const [error, setError] = useState("");
 
-  const[msg,setmsg]=useState("")
-  const [status,setstatus]=useState(false)
-  const [emailList,setemailList]=useState("")
+  // Upload history (last file)
+  const [lastFile, setLastFile] = useState(
+    JSON.parse(localStorage.getItem("lastFile")) || null
+  );
 
-  const handleClick=(e)=>{
-    setmsg(e.target.value)
+  // Email logs
+  const [logs, setLogs] = useState(
+    JSON.parse(localStorage.getItem("emailLogs")) || []
+  );
 
-  }
+  /* ---------------- MESSAGE ---------------- */
+  const handleMessageChange = (e) => {
+    setMsg(e.target.value);
+  };
 
-  const handleChange=(event)=>{
-     const file = event.target.files[0]
+  /* ---------------- FILE UPLOAD ---------------- */
+  const handleFileChange = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
 
-    const reader = new FileReader()
+    const fileDetails = {
+      name: file.name,
+      size: (file.size / 1024).toFixed(2) + " KB",
+      date: new Date().toLocaleString(),
+    };
 
-    reader.onload = function(event){
-        const data = event.target.result
-        const workbook = XLSX.read(data,{type:"binary"})
-        const sheetName = workbook.SheetNames[0]
-        const worksheet = workbook.Sheets[sheetName]
-        const emailList = XLSX.utils.sheet_to_json(worksheet,{header:"A"})
-         const totalemail=emailList.map((item)=>{return item.A})
-         setemailList(totalemail)
-      
-    }
+    setLastFile(fileDetails);
+    localStorage.setItem("lastFile", JSON.stringify(fileDetails));
+
+    const reader = new FileReader();
+
+    reader.onload = (e) => {
+      const data = e.target.result;
+      const workbook = XLSX.read(data, { type: "binary" });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json(sheet, { header: "A" });
+
+      const emails = jsonData
+        .map((item) => item.A)
+        .filter(
+          (email) =>
+            email &&
+            /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+        );
+
+      setEmailList(emails);
+      setError("");
+    };
 
     reader.readAsBinaryString(file);
+  };
 
-  }
+  /* ---------------- SEND EMAIL ---------------- */
+  const handleSend = async () => {
+    if (!msg.trim()) {
+      setError("Message cannot be empty");
+      return;
+    }
 
+    if (emailList.length === 0) {
+      setError("Upload a valid Excel file");
+      return;
+    }
 
-  const handleSend = () => {
-  if (!msg || msg.trim().length === 0) {
-    alert("Message cannot be empty!");
-    return;
-  }
+    try {
+      setStatus(true);
+      setError("");
 
-  if (!emailList || emailList.length === 0) {
-    alert("Email list cannot be empty!");
-    return;
-  }
+      const res = await axios.post(
+        "https://bulk-mail-p29c.onrender.com/sendmail",
+        { msg, emailList }
+      );
 
-  setstatus(true);
+      const logEntry = {
+        time: new Date().toLocaleString(),
+        totalEmails: emailList.length,
+        status: res.data.success ? "Success" : "Failed",
+      };
 
-  // Ensure emailList is an array of strings
-  const emailsArray = Array.isArray(emailList)
-    ? emailList
-    : emailList.split(",").map(e => e.trim());
+      const updatedLogs = [logEntry, ...logs];
+      setLogs(updatedLogs);
+      localStorage.setItem("emailLogs", JSON.stringify(updatedLogs));
 
-  axios.post("https://bulk-mail-p29c.onrender.com/sendmail", { msg, emailList: emailsArray })
-    .then((response) => {
-      if (response.data.success) {
-        alert("Email sent successfully");
-        setmsg("");
-      } else {
-        alert("Failed to send: " + response.data.error);
-      }
-      setstatus(false);
-    })
-    .catch((error) => {
-      alert("Error sending emails: " + (error.response?.data?.error || error.message));
-      setstatus(false);
-    });
-};
+      alert("Emails processed successfully ✅");
+      setMsg("");
+      setEmailList([]);
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
 
+      const failedLog = {
+        time: new Date().toLocaleString(),
+        totalEmails: emailList.length,
+        status: "Failed",
+      };
+
+      const updatedLogs = [failedLog, ...logs];
+      setLogs(updatedLogs);
+      localStorage.setItem("emailLogs", JSON.stringify(updatedLogs));
+    } finally {
+      setStatus(false);
+    }
+  };
+
+  /* ---------------- UI ---------------- */
   return (
-    <>
-<div className="min-h-screen bg-gradient-to-b from-[#b3e5fc] via-[#d0f2e8] to-[#e8f5e9]">
-  {/* Top Bar */}
-  <div className="md:flex justify-between items-center px-4 md:px-24 py-6">
-    <h1 className="text-4xl md:text-6xl font-extrabold text-teal-900 tracking-tight">
-      BulkMail
-    </h1>
-    <p className="text-teal-800 md:text-lg font-medium mt-2 md:mt-0 md:max-w-[420px]">
-      Want to send marketing emails quickly? Upload your file & push your business!
-    </p>
-  </div>
+    <div className="min-h-screen bg-gray-50 px-4 py-8">
 
-  {/* Main Input Area */}
-  <div className="flex flex-col items-center px-4 py-4">
-    <textarea
-      value={msg}
-      onChange={handleClick}
-      placeholder="Write your email content here..."
-      className="w-full md:w-[80%] h-32 rounded-lg border border-transparent bg-white shadow-md px-4 py-3
-                 focus:ring-2 focus:ring-teal-500 focus:outline-none text-gray-800"
-    />
-
-    {/* Section Title */}
-    <h2 className="text-teal-700 text-xl font-semibold mt-8 mb-3">
-      Upload Email List
-    </h2>
-
-    <div className="bg-white w-full md:w-[550px] rounded-2xl shadow-lg p-6">
-      {/* File Upload */}
-      <label
-        htmlFor="fileUpload"
-        className="flex flex-col items-center justify-center border-2 border-dashed border-teal-400 
-                   rounded-xl h-[170px] cursor-pointer hover:bg-teal-50 hover:border-teal-500
-                   transition-all duration-200"
-      >
-        <input
-          type="file"
-          id="fileUpload"
-          className="hidden"
-          accept=".csv,.xlsx"
-          onChange={handleChange}
-        />
-        <span className="text-5xl text-teal-500">📤</span>
-        <p className="mt-2 text-gray-700 font-medium">Drag & Drop File</p>
-        <p className="text-gray-400 text-sm">or click to browse</p>
-      </label>
-
-      {/* Email Count + Notes */}
-      <div className="mt-4 flex justify-between items-center">
-        <p className="text-gray-600 text-sm">
-          Emails Found: <span className="font-semibold">{emailList.length}</span>
+      {/* HEADER */}
+      <div className="max-w-5xl mx-auto text-center mb-8">
+        <h1 className="text-4xl font-bold text-teal-600">
+          BulkMail Dashboard
+        </h1>
+        <p className="text-gray-500 mt-1">
+          Minimal • Excel-based • Bulk email sender
         </p>
-        <p className="text-xs text-red-500">Excel only</p>
       </div>
 
-      <p className="text-gray-400 text-xs mt-1">
-        📌 Some mails may land in spam — ask users to check.
+      {/* MAIN CARD */}
+      <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow-md p-6">
+
+        {/* MESSAGE */}
+        <label className="block text-sm font-medium text-gray-600 mb-1">
+          Email Message
+        </label>
+        <textarea
+          value={msg}
+          onChange={handleMessageChange}
+          rows={5}
+          placeholder="Write your email content here..."
+          className="w-full border rounded-lg px-3 py-2 focus:ring-2
+                     focus:ring-teal-500 outline-none"
+        />
+
+        {/* FILE UPLOAD */}
+        <div className="mt-6">
+          <label className="block text-sm font-medium text-gray-600 mb-2">
+            Upload Excel File
+          </label>
+
+          <input
+            type="file"
+            accept=".xlsx,.csv"
+            onChange={handleFileChange}
+            className="block w-full text-sm text-gray-500"
+          />
+        </div>
+
+        {/* LAST UPLOAD */}
+        {lastFile && (
+          <div className="mt-4 bg-gray-50 p-3 rounded-lg text-sm">
+            <p><b>Last File:</b> {lastFile.name}</p>
+            <p>Size: {lastFile.size}</p>
+            <p>Uploaded: {lastFile.date}</p>
+          </div>
+        )}
+
+        {/* ERROR */}
+        {error && (
+          <p className="mt-4 text-red-500 text-sm">
+            ⚠ {error}
+          </p>
+        )}
+
+        {/* SEND BUTTON */}
+        <button
+          onClick={handleSend}
+          disabled={status}
+          className="w-full mt-6 py-2.5 rounded-lg font-semibold text-white
+                     bg-teal-600 hover:bg-teal-700 transition
+                     disabled:opacity-60"
+        >
+          {status ? "Sending..." : "Send Emails"}
+        </button>
+      </div>
+
+      {/* EMAIL LOGS */}
+      <div className="max-w-3xl mx-auto mt-8 bg-white rounded-2xl shadow-md p-6">
+        <h2 className="text-lg font-semibold text-gray-700 mb-4">
+          Email Logs
+        </h2>
+
+        {logs.length === 0 ? (
+          <p className="text-gray-400 text-sm">
+            No email activity yet
+          </p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-gray-500 border-b">
+                <th className="py-2">Time</th>
+                <th>Total Emails</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logs.map((log, index) => (
+                <tr key={index} className="border-b last:border-none">
+                  <td className="py-2">{log.time}</td>
+                  <td>{log.totalEmails}</td>
+                  <td
+                    className={
+                      log.status === "Success"
+                        ? "text-teal-600 font-medium"
+                        : "text-red-500 font-medium"
+                    }
+                  >
+                    {log.status}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* FOOTER */}
+      <p className="text-center text-xs text-gray-400 mt-6">
+        ⚠ Some emails may go to spam. Ask users to check inbox.
       </p>
-
-      {/* Send Button */}
-      <button
-        onClick={handleSend}
-        disabled={status}
-        className="w-full py-2 mt-6 bg-teal-700 text-white font-semibold rounded-lg
-                   hover:bg-teal-800 transition-all disabled:opacity-60"
-      >
-        {status ? "Sending..." : "Send Email"}
-      </button>
     </div>
-  </div>
-</div>
-
-     
-
-    </>
-  )
+  );
 }
 
-export default App
+export default App;
